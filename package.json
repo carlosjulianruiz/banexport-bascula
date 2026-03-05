@@ -1,0 +1,21 @@
+{
+  "name": "bascula",
+  "version": "1.0.0",
+  "description": "",
+  "license": "ISC",
+  "author": "",
+  "type": "commonjs",
+  "main": "server.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "node server.js"
+  },
+  "dependencies": {
+    "espress": "^0.0.0",
+    "express": "^5.2.1",
+    "serialport": "^13.0.0",
+    "socket.io": "^4.8.3",
+    "sqlite3": "^5.1.7",
+    "twilio": "^5.12.2"
+  }
+}

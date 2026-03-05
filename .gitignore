@@ -1,0 +1,15 @@
+# Base de datos local (se gestiona por Dropbox)
+*.db
+*.sqlite
+
+# Dependencias (se instalan limpio en la Raspberry)
+node_modules/
+vendor/
+
+# Archivos del sistema y logs
+.DS_Store
+*.log
+npm-debug.log*
+
+# Credenciales (si usas un archivo .env)
+.env
