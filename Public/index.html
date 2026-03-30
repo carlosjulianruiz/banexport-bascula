@@ -126,7 +126,7 @@
                 <div class="col-span-1"><label class="text-[10px] text-gray-500 uppercase">Account SID</label><input type="password" id="c-sid" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono"></div>
                 <div class="col-span-1"><label class="text-[10px] text-gray-500 uppercase">Auth Token</label><input type="password" id="c-token" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono"></div>
             </div>
-            <button onclick="guardarEmpresa()" class="w-full bg-green-600 hover:bg-green-500 py-4 rounded-xl font-bold text-lg mt-8 transition-all shadow-lg">💾 GUARDAR CONFIGURACIÓN</button>
+            <button onclick="guardarEmpresa()" class="w-full bg-green-600 hover:bg-green-500 py-4 rounded-xl font-bold text-lg mt-8 transition-all shadow-lg"><svg class="w-5 h-5 inline mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> GUARDAR CONFIGURACIÓN</button>
         </div>
     </main>
 
@@ -158,13 +158,13 @@
             alerta.classList.remove('hidden');
             if(data.estado === 'EN_PLANTA') {
                 alerta.className = "mt-2 p-2 rounded text-center font-bold text-xs bg-yellow-900 border-yellow-500 text-yellow-300";
-                alerta.innerText = `🚨 VEHÍCULO EN PLANTA (${data.datos_pesaje.peso_entrada.toFixed(1)} KG)`;
+                alerta.innerText = `VEHICULO EN PLANTA (${data.datos_pesaje.peso_entrada.toFixed(1)} KG)`;
                 document.getElementById('conductor').value = data.datos_pesaje.conductor;
                 document.getElementById('telefonos').value = data.datos_pesaje.telefonos;
                 document.getElementById('producto').value = data.datos_pesaje.producto;
             } else {
                 alerta.className = "mt-2 p-2 rounded text-center font-bold text-xs bg-green-900 border-green-500 text-green-300";
-                alerta.innerText = "✅ INGRESO NUEVO PERMITIDO";
+                alerta.innerText = "INGRESO NUEVO PERMITIDO";
             }
             conductoresCache = data.conductores;
             document.getElementById('sug-conductores').innerHTML = data.conductores.map(c => `<option value="${c.conductor}">`).join('');
@@ -211,7 +211,7 @@
                     <td class="p-3 text-right">${r.peso_salida?r.peso_salida.toFixed(1):'--'}</td>
                     <td class="p-3 text-right font-bold text-green-400">${r.peso_neto?r.peso_neto.toFixed(1):'--'}</td>
                     <td class="p-3 text-[10px] font-mono text-gray-400">${r.fecha_entrada}</td>
-                    <td class="p-3 text-center"><button onclick="reimprimirTiquete(${r.id})" class="bg-gray-700 hover:bg-blue-600 p-2 rounded transition">🖨️</button></td>
+                    <td class="p-3 text-center"><button onclick="reimprimirTiquete(${r.id})" class="bg-gray-700 hover:bg-blue-600 p-2 rounded transition"><svg class="w-4 h-4 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M6 9V2h12v7M6 18H4a2 2 0 01-2-2v-5a2 2 0 012-2h16a2 2 0 012 2v5a2 2 0 01-2 2h-2M6 14h12v8H6v-8z"/></svg></button></td>
                 </tr>`).join('');
             document.getElementById('paginacion').innerText = `Página ${json.page} de ${json.totalPages} | ${json.total} Registros`;
         }
