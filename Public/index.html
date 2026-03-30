@@ -24,7 +24,7 @@
 
     <div id="modal-exito" class="hidden fixed inset-0 bg-black/90 flex items-center justify-center z-[100]">
         <div class="bg-gray-800 p-8 rounded-2xl border border-blue-500 text-center max-w-sm shadow-2xl">
-            <div class="text-6xl mb-4">✅</div>
+            <div class="text-6xl mb-4"><svg class="w-16 h-16 mx-auto text-green-400" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"/></svg></div>
             <h3 class="text-xl font-bold mb-2">OPERACIÓN COMPLETADA</h3>
             <p id="modal-msg" class="text-gray-400 mb-6"></p>
             <button onclick="cerrarModal()" class="w-full bg-blue-600 hover:bg-blue-500 py-3 rounded-xl font-bold transition">ACEPTAR</button>
@@ -35,10 +35,10 @@
         <div class="flex items-center gap-6">
             <h1 class="text-2xl font-bold text-blue-400" id="header-nombre">BÁSCULA</h1>
             <nav class="flex bg-gray-900 rounded-lg p-1 gap-1">
-                <button onclick="cambiarTab('bascula')" id="tab-bascula" class="px-4 py-2 rounded-md bg-blue-600 font-bold transition">⚖️ Pesaje</button>
-                <button onclick="cambiarTab('historial')" id="tab-historial" class="px-4 py-2 rounded-md text-gray-400 font-bold">📋 Historial</button>
-                <button onclick="cambiarTab('maestro')" id="tab-maestro" class="px-4 py-2 rounded-md text-gray-400 font-bold">🚚 Vehículos</button>
-                <button onclick="cambiarTab('config')" id="tab-config" class="px-4 py-2 rounded-md text-gray-400 font-bold">⚙️ Config</button>
+                <button onclick="cambiarTab('bascula')" id="tab-bascula" class="px-4 py-2 rounded-md bg-blue-600 font-bold transition flex items-center gap-1"><svg class="w-4 h-4 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 3v1m0 16v1m-9-9h1m16 0h1m-2.636-6.364l-.707.707M6.343 17.657l-.707.707m12.728 0l-.707-.707M6.343 6.343l-.707-.707M12 8a4 4 0 100 8 4 4 0 000-8z"/><path d="M3 12h3m12 0h3M7 17l2-2m6-6l2-2M7 7l2 2m6 6l2 2"/></svg> Pesaje</button>
+                <button onclick="cambiarTab('historial')" id="tab-historial" class="px-4 py-2 rounded-md text-gray-400 font-bold flex items-center gap-1"><svg class="w-4 h-4 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4"/></svg> Historial</button>
+                <button onclick="cambiarTab('maestro')" id="tab-maestro" class="px-4 py-2 rounded-md text-gray-400 font-bold flex items-center gap-1"><svg class="w-4 h-4 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M8 17h.01M16 17h.01M3 11l1.5-5A2 2 0 016.4 4h11.2a2 2 0 011.9 1.4L21 11M3 11v5a1 1 0 001 1h1m16-6v5a1 1 0 01-1 1h-1M3 11h18"/></svg> Vehículos</button>
+                <button onclick="cambiarTab('config')" id="tab-config" class="px-4 py-2 rounded-md text-gray-400 font-bold flex items-center gap-1"><svg class="w-4 h-4 inline" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 6V4m0 2a2 2 0 100 4m0-4a2 2 0 110 4m-6 8a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4m6 6v10m6-2a2 2 0 100-4m0 4a2 2 0 110-4m0 4v2m0-6V4"/></svg> Config</button>
             </nav>
         </div>
         <div id="reloj" class="font-mono text-gray-400 text-lg uppercase tracking-widest">--:--:--</div>
