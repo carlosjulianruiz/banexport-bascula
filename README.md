@@ -115,6 +115,68 @@ La base de datos se crea automáticamente al iniciar el servidor por primera vez
    - **Auth Token**
    - **Numero emisor** (formato `+14155238886`)
 
+## Backup Automático a Dropbox
+
+El proyecto incluye un script (`backup-dropbox.sh`) que realiza una copia segura de la base de datos SQLite y la sube a Dropbox usando **rclone**.
+
+### Instalación de rclone (Raspberry Pi)
+
+```bash
+sudo apt install rclone
+```
+
+### Configurar el remote de Dropbox
+
+```bash
+rclone config
+```
+
+Seguir el wizard interactivo:
+
+1. **New remote** -> nombre: `dropbox`
+2. **Storage**: seleccionar `dropbox`
+3. **client_id**: dejar vacío (Enter)
+4. **client_secret**: dejar vacío (Enter)
+5. **Edit advanced config?**: `n`
+6. **Use auto config?**: `y`
+7. Se abre el navegador -> iniciar sesión en Dropbox y autorizar el acceso
+8. Si pide contraseña de keyring, elegir una y recordarla
+9. Confirmar con `y`
+
+### Probar el backup manualmente
+
+```bash
+./backup-dropbox.sh
+```
+
+Los backups se guardan en Dropbox en la carpeta `bascula-backups/`.
+
+### Programar backup automático con cron
+
+```bash
+crontab -e
+```
+
+Agregar una línea según la frecuencia deseada:
+
+```bash
+# Cada 6 horas
+0 */6 * * * /home/pi/bascula/backup-dropbox.sh
+
+# Cada hora
+0 * * * * /home/pi/bascula/backup-dropbox.sh
+
+# Todos los días a las 11pm
+0 23 * * * /home/pi/bascula/backup-dropbox.sh
+```
+
+> Ajustar la ruta al directorio real del proyecto en el Raspberry Pi.
+
+### Retención
+
+- **Local**: se conservan los últimos 7 backups.
+- **Dropbox**: se conservan los últimos 30 backups.
+
 ## Conexión de Báscula (Puerto Serial)
 
 El servidor importa `serialport` para leer datos del indicador de peso. Actualmente la lectura en vivo está simulada con valores aleatorios (~15000 kg). Para conectar una báscula real, se debe configurar el puerto serial y el parser en `server.js`.

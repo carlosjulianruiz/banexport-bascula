@@ -98,7 +98,35 @@ const server = http.createServer(app);
 const io = new Server(server);
 
 let pesoActual = 0.0;
-setInterval(() => { pesoActual = 15000 + (Math.random() * 5); io.emit('peso_live', pesoActual); }, 500);
+
+// --- LECTURA PUERTO SERIAL (Fairbanks IND-R2500) ---
+// Formato Condec: STX + status(2 bytes) + peso_bruto(6 chars) + peso_neto(6 chars) + CR
+const SERIAL_PORT = process.platform === 'linux' ? '/dev/ttyUSB0' : '/dev/cu.usbserial-2110';
+const SERIAL_BAUD = 9600;
+
+try {
+    const serialPort = new SerialPort({ path: SERIAL_PORT, baudRate: SERIAL_BAUD, dataBits: 7, parity: 'even', stopBits: 1 });
+    const parser = serialPort.pipe(new ReadlineParser({ delimiter: '\r' }));
+
+    parser.on('data', (line) => {
+        // Trama: STX(1) + status(2) + space(1) + peso_bruto(6) + peso_neto(6)
+        // Ejemplo con peso 0: "\x02)0      0     0"
+        if (line.length >= 10 && line.charCodeAt(0) === 0x02) {
+            const pesoBruto = parseFloat(line.substring(4, 10));
+            if (!isNaN(pesoBruto)) {
+                pesoActual = pesoBruto;
+                io.emit('peso_live', pesoActual);
+            }
+        }
+    });
+
+    serialPort.on('open', () => console.log(`✅ Puerto serial ${SERIAL_PORT} abierto (${SERIAL_BAUD},7,E,1)`));
+    serialPort.on('error', (err) => console.error(`❌ Error serial: ${err.message}`));
+} catch (err) {
+    console.error(`⚠️ No se pudo abrir puerto serial: ${err.message}`);
+    console.log('📡 Modo simulación activado');
+    setInterval(() => { pesoActual = 15000 + (Math.random() * 5); io.emit('peso_live', pesoActual); }, 500);
+}
 
 function imprimirTiquete(texto) {
     console.log("\n--- 🖨️ SIMULACIÓN DE TIQUETE ---\n" + texto);
