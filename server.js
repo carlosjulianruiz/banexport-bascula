@@ -6,6 +6,7 @@ const { ReadlineParser } = require('@serialport/parser-readline');
 const cors = require('cors');
 const fs = require('fs');
 const twilio = require('twilio'); // IMPORTANTE: Haber hecho npm install twilio
+const { ThermalPrinter, PrinterTypes, CharacterSet } = require('node-thermal-printer');
 
 // --- 1. CONFIGURACIÓN BASE DE DATOS ---
 const sqlite3 = require('sqlite3').verbose();
@@ -43,6 +44,7 @@ db.serialize(() => {
         nombre TEXT, nit TEXT, telefono TEXT, correo TEXT, direccion TEXT,
         twilio_sid TEXT, twilio_token TEXT, twilio_phone TEXT
     )`);
+    db.run(`ALTER TABLE empresa ADD COLUMN printer_ip TEXT`, () => {});
 
     db.get("SELECT COUNT(*) as count FROM empresa", (err, row) => {
         if (row && row.count === 0) {
@@ -128,8 +130,49 @@ try {
     setInterval(() => { pesoActual = 15000 + (Math.random() * 5); io.emit('peso_live', pesoActual); }, 500);
 }
 
-function imprimirTiquete(texto) {
-    console.log("\n--- 🖨️ SIMULACIÓN DE TIQUETE ---\n" + texto);
+async function imprimirTiquete(texto) {
+    try {
+        const emp = await dbGet("SELECT printer_ip FROM empresa LIMIT 1");
+        if (!emp || !emp.printer_ip) {
+            console.log("\n--- 🖨️ SIN IMPRESORA CONFIGURADA ---\n" + texto);
+            return;
+        }
+
+        const printer = new ThermalPrinter({
+            type: PrinterTypes.EPSON,
+            interface: `tcp://${emp.printer_ip}:9100`,
+            characterSet: CharacterSet.PC850_MULTILINGUAL,
+            removeSpecialCharacters: false,
+            options: { timeout: 5000 }
+        });
+
+        const conectada = await printer.isPrinterConnected();
+        if (!conectada) {
+            console.error(`❌ Impresora ${emp.printer_ip} no responde`);
+            return;
+        }
+
+        for (const raw of texto.split('\n')) {
+            const linea = raw.replace(/^\s+/, '');
+            if (linea === '') { printer.newLine(); continue; }
+            if (/^-{3,}$/.test(linea)) { printer.drawLine(); continue; }
+            const full = linea.match(/^\*(.+)\*$/);
+            if (full) {
+                printer.alignCenter();
+                printer.bold(true);
+                printer.println(full[1]);
+                printer.bold(false);
+                printer.alignLeft();
+                continue;
+            }
+            printer.println(linea.replace(/\*/g, ''));
+        }
+        printer.cut();
+        await printer.execute();
+        console.log(`✅ Tiquete impreso en ${emp.printer_ip}`);
+    } catch (e) {
+        console.error(`❌ Error impresión: ${e.message}`);
+    }
 }
 
 // --- 4. RUTAS API ---
@@ -137,9 +180,9 @@ function imprimirTiquete(texto) {
 app.get('/api/empresa', async (req, res) => res.json(await dbGet("SELECT * FROM empresa LIMIT 1")));
 
 app.post('/api/empresa', async (req, res) => {
-    const { nombre, nit, telefono, correo, direccion, twilio_sid, twilio_token, twilio_phone } = req.body;
-    await dbRun("UPDATE empresa SET nombre=?, nit=?, telefono=?, correo=?, direccion=?, twilio_sid=?, twilio_token=?, twilio_phone=? WHERE id=1", 
-        [nombre.toUpperCase(), nit, telefono, correo.toLowerCase(), direccion.toUpperCase(), twilio_sid, twilio_token, twilio_phone]);
+    const { nombre, nit, telefono, correo, direccion, twilio_sid, twilio_token, twilio_phone, printer_ip } = req.body;
+    await dbRun("UPDATE empresa SET nombre=?, nit=?, telefono=?, correo=?, direccion=?, twilio_sid=?, twilio_token=?, twilio_phone=?, printer_ip=? WHERE id=1",
+        [nombre.toUpperCase(), nit, telefono, correo.toLowerCase(), direccion.toUpperCase(), twilio_sid, twilio_token, twilio_phone, printer_ip]);
     res.json({ mensaje: "Ok" });
 });
 

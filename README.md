@@ -29,9 +29,10 @@ El servidor inicia en `http://localhost:3000`.
 
 ```
 bascula/
-├── server.js                 # Servidor Express + API REST + Socket.IO
+├── server.js                 # Servidor Express + API REST + Socket.IO + lector serial
 ├── Public/
 │   └── index.html            # Frontend SPA (Tailwind CSS)
+├── backup-dropbox.sh         # Script de backup de la BD a Dropbox via rclone
 ├── banexport_pesajes.db      # Base de datos SQLite (se crea automáticamente)
 ├── package.json
 └── README.md
@@ -179,7 +180,38 @@ Agregar una línea según la frecuencia deseada:
 
 ## Conexión de Báscula (Puerto Serial)
 
-El servidor importa `serialport` para leer datos del indicador de peso. Actualmente la lectura en vivo está simulada con valores aleatorios (~15000 kg). Para conectar una báscula real, se debe configurar el puerto serial y el parser en `server.js`.
+El servidor lee el peso en vivo desde un indicador **Fairbanks IND-R2500** (formato Condec) a través del puerto serial.
+
+### Parámetros de comunicación
+
+| Parámetro | Valor |
+|-----------|-------|
+| Baudios   | 9600  |
+| Data bits | 7     |
+| Paridad   | Even  |
+| Stop bits | 1     |
+| Delimitador | `\r` (CR) |
+
+### Puerto serial por sistema operativo
+
+| OS         | Ruta por defecto           |
+|------------|----------------------------|
+| Linux (Raspberry Pi) | `/dev/ttyUSB0`   |
+| macOS      | `/dev/cu.usbserial-2110`   |
+
+Si necesita cambiar la ruta, edite las constantes `SERIAL_PORT` y `SERIAL_BAUD` en `server.js`.
+
+### Formato de la trama
+
+```
+STX(1) + status(2) + space(1) + peso_bruto(6 chars) + peso_neto(6 chars) + CR
+```
+
+El parser toma los 6 caracteres del peso bruto (`line.substring(4, 10)`) y los emite por Socket.IO en el evento `peso_live`.
+
+### Modo simulación
+
+Si el puerto serial no puede abrirse (báscula desconectada o en otro entorno de desarrollo), el servidor activa automáticamente un **modo simulación** que emite valores aleatorios alrededor de 15000 kg cada 500 ms. Esto permite probar el flujo completo sin hardware.
 
 ## Zona Horaria
 
