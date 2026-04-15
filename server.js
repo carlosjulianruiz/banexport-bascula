@@ -108,7 +108,7 @@ const SERIAL_BAUD = 9600;
 
 try {
     const serialPort = new SerialPort({ path: SERIAL_PORT, baudRate: SERIAL_BAUD, dataBits: 7, parity: 'even', stopBits: 1 });
-    const parser = serialPort.pipe(new ReadlineParser({ delimiter: '\r' }));
+    const parser = serialPort.pipe(new ReadlineParser({ delimiter: '\n' }));
 
     parser.on('data', (line) => {
         // Trama: STX(1) + status(2) + space(1) + peso_bruto(6) + peso_neto(6)
