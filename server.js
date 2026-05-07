@@ -18,6 +18,7 @@ db.serialize(() => {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         placa TEXT NOT NULL,
         conductor TEXT,
+        cedula TEXT,
         producto TEXT,
         observaciones TEXT,
         telefonos TEXT,
@@ -28,15 +29,18 @@ db.serialize(() => {
         fecha_salida TEXT,
         estado TEXT DEFAULT 'ABIERTO'
     )`);
+    db.run(`ALTER TABLE pesajes ADD COLUMN cedula TEXT`, () => {});
 
     // Muchos a Muchos: Placa - Conductores
     db.run(`CREATE TABLE IF NOT EXISTS placa_conductores (
         placa TEXT,
         conductor TEXT,
+        cedula TEXT,
         telefonos TEXT,
         ultimo_uso DATETIME DEFAULT CURRENT_TIMESTAMP,
         PRIMARY KEY (placa, conductor)
     )`);
+    db.run(`ALTER TABLE placa_conductores ADD COLUMN cedula TEXT`, () => {});
 
     // Empresa + Twilio
     db.run(`CREATE TABLE IF NOT EXISTS empresa (
@@ -189,7 +193,7 @@ app.post('/api/empresa', async (req, res) => {
 app.get('/api/vehiculo/:placa', async (req, res) => {
     const placa = req.params.placa.toUpperCase();
     const abierta = await dbGet("SELECT * FROM pesajes WHERE placa = ? AND estado = 'ABIERTO'", [placa]);
-    const conductores = await dbAll("SELECT conductor, telefonos FROM placa_conductores WHERE placa = ? ORDER BY ultimo_uso DESC", [placa]);
+    const conductores = await dbAll("SELECT conductor, cedula, telefonos FROM placa_conductores WHERE placa = ? ORDER BY ultimo_uso DESC", [placa]);
     res.json({ estado: abierta ? 'EN_PLANTA' : 'NUEVO', datos_pesaje: abierta, conductores });
 });
 
@@ -212,14 +216,14 @@ app.get('/api/historial', async (req, res) => {
 });
 
 app.post('/api/registrar', async (req, res) => {
-    const { conductor, producto, observaciones, telefonos } = req.body;
+    const { conductor, cedula, producto, observaciones, telefonos } = req.body;
     const placa = req.body.placa.toUpperCase();
     const fechaHoy = obtenerFechaColombia();
     const emp = await dbGet("SELECT * FROM empresa LIMIT 1");
 
-    await dbRun(`INSERT INTO placa_conductores (placa, conductor, telefonos, ultimo_uso) 
-                 VALUES (?, ?, ?, ?) ON CONFLICT(placa, conductor) DO UPDATE SET telefonos=excluded.telefonos, ultimo_uso=excluded.ultimo_uso`,
-                 [placa, conductor.toUpperCase(), telefonos, fechaHoy]);
+    await dbRun(`INSERT INTO placa_conductores (placa, conductor, cedula, telefonos, ultimo_uso)
+                 VALUES (?, ?, ?, ?, ?) ON CONFLICT(placa, conductor) DO UPDATE SET cedula=excluded.cedula, telefonos=excluded.telefonos, ultimo_uso=excluded.ultimo_uso`,
+                 [placa, conductor.toUpperCase(), cedula, telefonos, fechaHoy]);
 
     const abierta = await dbGet("SELECT * FROM pesajes WHERE placa = ? AND estado = 'ABIERTO'", [placa]);
 
@@ -238,6 +242,7 @@ app.post('/api/registrar', async (req, res) => {
             *TIQUETE #:* ${abierta.id}
             *PLACA:* ${placa}
             *CONDUCTOR:* ${conductor.toUpperCase()}
+            *CEDULA:* ${cedula || 'N/A'}
 
             *ENTRADA:* ${abierta.fecha_entrada}
             *SALIDA:* ${fechaHoy}
@@ -253,9 +258,9 @@ app.post('/api/registrar', async (req, res) => {
         enviarWhatsApp(telefonos, tiqueteTxt);
         res.json({ tipo: 'SALIDA', neto });
     } else {
-        const r = await dbRun("INSERT INTO pesajes (placa, conductor, producto, observaciones, telefonos, peso_entrada, fecha_entrada) VALUES (?,?,?,?,?,?,?)",
-            [placa, conductor.toUpperCase(), producto.toUpperCase(), observaciones.toUpperCase(), telefonos, pesoActual, fechaHoy]);
-        
+        const r = await dbRun("INSERT INTO pesajes (placa, conductor, cedula, producto, observaciones, telefonos, peso_entrada, fecha_entrada) VALUES (?,?,?,?,?,?,?,?)",
+            [placa, conductor.toUpperCase(), cedula, producto.toUpperCase(), observaciones.toUpperCase(), telefonos, pesoActual, fechaHoy]);
+
         tiqueteTxt = `*TIQUETE DE BÁSCULA (INGRESO)*
 *${emp.nombre}*
 NIT: ${emp.nit}
@@ -266,6 +271,7 @@ E-MAIL: ${emp.correo}
 *TIQUETE #:* ${r.lastID}
 *PLACA:* ${placa}
 *CONDUCTOR:* ${conductor.toUpperCase()}
+*CEDULA:* ${cedula || 'N/A'}
 
 *FECHA INGRESO:* ${fechaHoy}
 *PESO ENTRADA:* ${pesoActual.toFixed(1)} kg
@@ -303,6 +309,7 @@ E-MAIL: ${emp.correo}
 *TIQUETE #:* ${reg.id}
 *PLACA:* ${reg.placa}
 *CONDUCTOR:* ${reg.conductor ? reg.conductor.toUpperCase() : 'N/A'}
+*CEDULA:* ${reg.cedula || 'N/A'}
 
 *INGRESO:* ${reg.fecha_entrada}
 *SALIDA:* ${reg.fecha_salida}
@@ -318,6 +325,7 @@ E-MAIL: ${emp.correo}
 *TIQUETE #:* ${reg.id} (INGRESO)
 *PLACA:* ${reg.placa}
 *CONDUCTOR:* ${reg.conductor ? reg.conductor.toUpperCase() : 'N/A'}
+*CEDULA:* ${reg.cedula || 'N/A'}
 
 *FECHA INGRESO:* ${reg.fecha_entrada}
 *PESO ACTUAL:* ${reg.peso_entrada.toFixed(1)} kg

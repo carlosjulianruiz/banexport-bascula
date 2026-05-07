@@ -1,5 +1,5 @@
 # Base de datos local (se gestiona por Dropbox)
-*.db
+# *.db
 *.sqlite
 
 # Dependencias (se instalan limpio en la Raspberry)

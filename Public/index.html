@@ -62,6 +62,10 @@
                 <datalist id="sug-conductores"></datalist>
             </div>
             <div>
+                <label class="text-[10px] font-bold text-gray-500 uppercase">Cédula</label>
+                <input type="text" id="cedula" inputmode="numeric" autocomplete="off" class="w-full p-3 bg-gray-900 text-lg rounded border border-gray-700 focus:border-blue-500 outline-none" style="text-transform:none">
+            </div>
+            <div>
                 <label class="text-[10px] font-bold text-gray-500 uppercase">Teléfonos (Enviar tiquete)</label>
                 <input type="text" id="telefonos" placeholder="3101234567, 320..." autocomplete="off" class="w-full p-3 bg-gray-900 text-lg rounded border border-gray-700 focus:border-blue-500 outline-none">
             </div>
@@ -163,6 +167,7 @@
                 alerta.className = "mt-2 p-2 rounded text-center font-bold text-xs bg-yellow-900 border-yellow-500 text-yellow-300";
                 alerta.innerText = `VEHICULO EN PLANTA (${data.datos_pesaje.peso_entrada.toFixed(1)} KG)`;
                 document.getElementById('conductor').value = data.datos_pesaje.conductor;
+                document.getElementById('cedula').value = data.datos_pesaje.cedula || '';
                 document.getElementById('telefonos').value = data.datos_pesaje.telefonos;
                 document.getElementById('producto').value = data.datos_pesaje.producto;
             } else {
@@ -176,13 +181,17 @@
         function seleccionarConductor() {
             const nom = document.getElementById('conductor').value.toUpperCase();
             const found = conductoresCache.find(c => c.conductor === nom);
-            if(found) document.getElementById('telefonos').value = found.telefonos;
+            if(found) {
+                document.getElementById('telefonos').value = found.telefonos;
+                if(found.cedula) document.getElementById('cedula').value = found.cedula;
+            }
         }
 
         async function registrarPesaje() {
             const payload = {
                 placa: document.getElementById('placa').value,
                 conductor: document.getElementById('conductor').value,
+                cedula: document.getElementById('cedula').value,
                 telefonos: document.getElementById('telefonos').value,
                 producto: document.getElementById('producto').value,
                 observaciones: document.getElementById('observaciones').value
@@ -192,6 +201,7 @@
                 abrirModal("REGISTRO EXITOSO. EL TIQUETE HA SIDO IMPRESO Y ENVIADO POR WHATSAPP.");
                 document.getElementById('placa').value = '';
                 document.getElementById('conductor').value = '';
+                document.getElementById('cedula').value = '';
                 document.getElementById('telefonos').value = '';
                 document.getElementById('alerta-placa').classList.add('hidden');
                 document.getElementById('placa').focus();
