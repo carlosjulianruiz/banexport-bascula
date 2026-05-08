@@ -1,5 +1,6 @@
 const express = require('express');
 const http = require('http');
+const net = require('net');
 const { Server } = require('socket.io');
 const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
@@ -228,6 +229,27 @@ async function imprimirTiquete(texto) {
 // --- 4. RUTAS API ---
 
 app.get('/api/empresa', async (req, res) => res.json(await dbGet("SELECT * FROM empresa LIMIT 1")));
+
+function chequearImpresora(ip, timeout = 1500) {
+    return new Promise((resolve) => {
+        if (!ip) return resolve(false);
+        const socket = new net.Socket();
+        let resuelto = false;
+        const fin = (ok) => { if (resuelto) return; resuelto = true; socket.destroy(); resolve(ok); };
+        socket.setTimeout(timeout);
+        socket.once('connect', () => fin(true));
+        socket.once('timeout', () => fin(false));
+        socket.once('error', () => fin(false));
+        socket.connect(9100, ip);
+    });
+}
+
+app.get('/api/printer/status', async (req, res) => {
+    const emp = await dbGet("SELECT printer_ip, printer_mac FROM empresa LIMIT 1");
+    const ip = emp?.printer_ip || null;
+    const connected = await chequearImpresora(ip);
+    res.json({ connected, ip, mac: emp?.printer_mac || null });
+});
 
 app.post('/api/empresa', async (req, res) => {
     const { nombre, nit, telefono, correo, direccion, twilio_sid, twilio_token, twilio_phone, printer_ip, printer_mac } = req.body;
