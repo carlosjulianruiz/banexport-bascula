@@ -225,7 +225,7 @@
                 <tr class="hover:bg-gray-700 transition">
                     <td class="p-3 text-gray-500">#${r.id}</td>
                     <td class="p-3 font-bold text-blue-400">${r.placa}</td>
-                    <td class="p-3 text-xs">${r.conductor}</td>
+                    <td class="p-3 text-xs">${r.conductor}${r.cedula ? `<div class="text-[9px] text-gray-500 font-mono mt-0.5">CC ${r.cedula}</div>` : ''}</td>
                     <td class="p-3 text-center"><span class="px-2 py-1 rounded text-[9px] font-bold ${r.estado==='ABIERTO'?'bg-yellow-800 text-yellow-200':'bg-gray-700 text-gray-300'}">${r.estado}</span></td>
                     <td class="p-3 text-right">${r.peso_entrada.toFixed(1)}</td>
                     <td class="p-3 text-right">${r.peso_salida?r.peso_salida.toFixed(1):'--'}</td>
