@@ -5,6 +5,9 @@ const { SerialPort } = require('serialport');
 const { ReadlineParser } = require('@serialport/parser-readline');
 const cors = require('cors');
 const fs = require('fs');
+const { exec } = require('child_process');
+const { promisify } = require('util');
+const execAsync = promisify(exec);
 const twilio = require('twilio'); // IMPORTANTE: Haber hecho npm install twilio
 const { ThermalPrinter, PrinterTypes, CharacterSet } = require('node-thermal-printer');
 
@@ -49,6 +52,7 @@ db.serialize(() => {
         twilio_sid TEXT, twilio_token TEXT, twilio_phone TEXT
     )`);
     db.run(`ALTER TABLE empresa ADD COLUMN printer_ip TEXT`, () => {});
+    db.run(`ALTER TABLE empresa ADD COLUMN printer_mac TEXT`, () => {});
 
     db.get("SELECT COUNT(*) as count FROM empresa", (err, row) => {
         if (row && row.count === 0) {
@@ -134,46 +138,88 @@ try {
     setInterval(() => { pesoActual = 15000 + (Math.random() * 5); io.emit('peso_live', pesoActual); }, 500);
 }
 
+async function findIpByMac(mac) {
+    if (!mac) return null;
+    const target = mac.toLowerCase().trim();
+    try {
+        const { stdout } = await execAsync('sudo -n arp-scan --localnet --retry=2 2>/dev/null', { timeout: 15000 });
+        for (const line of stdout.split('\n')) {
+            const m = line.match(/^(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f:]{17})/i);
+            if (m && m[2].toLowerCase() === target) return m[1];
+        }
+    } catch (e) {
+        console.error(`❌ arp-scan falló: ${e.message}`);
+    }
+    return null;
+}
+
+async function ejecutarImpresion(printerIp, texto) {
+    const printer = new ThermalPrinter({
+        type: PrinterTypes.EPSON,
+        interface: `tcp://${printerIp}:9100`,
+        characterSet: CharacterSet.PC850_MULTILINGUAL,
+        removeSpecialCharacters: false,
+        options: { timeout: 5000 }
+    });
+
+    if (!(await printer.isPrinterConnected())) return false;
+
+    for (const raw of texto.split('\n')) {
+        const linea = raw.replace(/^\s+/, '');
+        if (linea === '') { printer.newLine(); continue; }
+        if (/^-{3,}$/.test(linea)) { printer.drawLine(); continue; }
+        const full = linea.match(/^\*(.+)\*$/);
+        if (full) {
+            printer.alignCenter();
+            printer.bold(true);
+            printer.println(full[1]);
+            printer.bold(false);
+            printer.alignLeft();
+            continue;
+        }
+        printer.println(linea.replace(/\*/g, ''));
+    }
+    printer.cut();
+    await printer.execute();
+    return true;
+}
+
 async function imprimirTiquete(texto) {
     try {
-        const emp = await dbGet("SELECT printer_ip FROM empresa LIMIT 1");
-        if (!emp || !emp.printer_ip) {
+        const emp = await dbGet("SELECT printer_ip, printer_mac FROM empresa LIMIT 1");
+        if (!emp || (!emp.printer_ip && !emp.printer_mac)) {
             console.log("\n--- 🖨️ SIN IMPRESORA CONFIGURADA ---\n" + texto);
             return;
         }
 
-        const printer = new ThermalPrinter({
-            type: PrinterTypes.EPSON,
-            interface: `tcp://${emp.printer_ip}:9100`,
-            characterSet: CharacterSet.PC850_MULTILINGUAL,
-            removeSpecialCharacters: false,
-            options: { timeout: 5000 }
-        });
-
-        const conectada = await printer.isPrinterConnected();
-        if (!conectada) {
-            console.error(`❌ Impresora ${emp.printer_ip} no responde`);
-            return;
-        }
-
-        for (const raw of texto.split('\n')) {
-            const linea = raw.replace(/^\s+/, '');
-            if (linea === '') { printer.newLine(); continue; }
-            if (/^-{3,}$/.test(linea)) { printer.drawLine(); continue; }
-            const full = linea.match(/^\*(.+)\*$/);
-            if (full) {
-                printer.alignCenter();
-                printer.bold(true);
-                printer.println(full[1]);
-                printer.bold(false);
-                printer.alignLeft();
-                continue;
+        if (emp.printer_ip) {
+            try {
+                if (await ejecutarImpresion(emp.printer_ip, texto)) {
+                    console.log(`✅ Tiquete impreso en ${emp.printer_ip}`);
+                    return;
+                }
+            } catch (e) {
+                console.error(`⚠️ Falló impresión en ${emp.printer_ip}: ${e.message}`);
             }
-            printer.println(linea.replace(/\*/g, ''));
+            console.log(`⚠️ ${emp.printer_ip} no responde`);
         }
-        printer.cut();
-        await printer.execute();
-        console.log(`✅ Tiquete impreso en ${emp.printer_ip}`);
+
+        if (emp.printer_mac) {
+            console.log(`🔎 Buscando impresora por MAC ${emp.printer_mac}...`);
+            const nuevaIp = await findIpByMac(emp.printer_mac);
+            if (nuevaIp && nuevaIp !== emp.printer_ip) {
+                console.log(`📍 IP actualizada: ${emp.printer_ip || 'N/A'} → ${nuevaIp}`);
+                await dbRun("UPDATE empresa SET printer_ip=? WHERE id=1", [nuevaIp]);
+                if (await ejecutarImpresion(nuevaIp, texto)) {
+                    console.log(`✅ Tiquete impreso en ${nuevaIp}`);
+                    return;
+                }
+            } else if (!nuevaIp) {
+                console.error(`❌ MAC ${emp.printer_mac} no encontrada en la red`);
+            }
+        }
+
+        console.error(`❌ No se pudo imprimir el tiquete`);
     } catch (e) {
         console.error(`❌ Error impresión: ${e.message}`);
     }
@@ -184,9 +230,10 @@ async function imprimirTiquete(texto) {
 app.get('/api/empresa', async (req, res) => res.json(await dbGet("SELECT * FROM empresa LIMIT 1")));
 
 app.post('/api/empresa', async (req, res) => {
-    const { nombre, nit, telefono, correo, direccion, twilio_sid, twilio_token, twilio_phone, printer_ip } = req.body;
-    await dbRun("UPDATE empresa SET nombre=?, nit=?, telefono=?, correo=?, direccion=?, twilio_sid=?, twilio_token=?, twilio_phone=?, printer_ip=? WHERE id=1",
-        [nombre.toUpperCase(), nit, telefono, correo.toLowerCase(), direccion.toUpperCase(), twilio_sid, twilio_token, twilio_phone, printer_ip]);
+    const { nombre, nit, telefono, correo, direccion, twilio_sid, twilio_token, twilio_phone, printer_ip, printer_mac } = req.body;
+    const macNormalizada = (printer_mac || '').toLowerCase().trim();
+    await dbRun("UPDATE empresa SET nombre=?, nit=?, telefono=?, correo=?, direccion=?, twilio_sid=?, twilio_token=?, twilio_phone=?, printer_ip=?, printer_mac=? WHERE id=1",
+        [nombre.toUpperCase(), nit, telefono, correo.toLowerCase(), direccion.toUpperCase(), twilio_sid, twilio_token, twilio_phone, printer_ip, macNormalizada]);
     res.json({ mensaje: "Ok" });
 });
 

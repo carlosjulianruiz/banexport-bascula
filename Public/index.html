@@ -127,6 +127,7 @@
 
                 <div class="col-span-2 mt-6 text-cyan-400 font-bold border-b border-gray-700 text-xs uppercase tracking-widest pb-1">Impresora de Tiquetes (Red)</div>
                 <div class="col-span-2"><label class="text-[10px] text-gray-500 uppercase">IP de la impresora térmica (TCP 9100)</label><input type="text" id="c-printer-ip" placeholder="192.168.19.68" autocomplete="off" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono text-cyan-400"></div>
+                <div class="col-span-2"><label class="text-[10px] text-gray-500 uppercase">MAC de la impresora (opcional, auto-detección si la IP cambia)</label><input type="text" id="c-printer-mac" placeholder="a4:d7:3c:ec:97:94" autocomplete="off" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono text-cyan-400 lowercase" style="text-transform:lowercase"></div>
 
                 <div class="col-span-2 mt-6 text-yellow-500 font-bold border-b border-gray-700 text-xs uppercase tracking-widest pb-1">Credenciales Twilio WhatsApp</div>
                 <div class="col-span-2"><label class="text-[10px] text-gray-500 uppercase">Número Emisor Twilio (Incluir + y código de país)</label><input type="text" id="c-twilio-phone" placeholder="+14155238886" autocomplete="off" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono text-yellow-400"></div>
@@ -250,6 +251,7 @@
             document.getElementById('c-direccion').value = d.direccion || '';
             document.getElementById('c-twilio-phone').value = d.twilio_phone || '';
             document.getElementById('c-printer-ip').value = d.printer_ip || '';
+            document.getElementById('c-printer-mac').value = d.printer_mac || '';
             document.getElementById('c-sid').value = d.twilio_sid || '';
             document.getElementById('c-token').value = d.twilio_token || '';
             document.getElementById('header-nombre').innerText = d.nombre || 'BÁSCULA';
@@ -264,6 +266,7 @@
                 direccion: document.getElementById('c-direccion').value,
                 twilio_phone: document.getElementById('c-twilio-phone').value,
                 printer_ip: document.getElementById('c-printer-ip').value.trim(),
+                printer_mac: document.getElementById('c-printer-mac').value.trim().toLowerCase(),
                 twilio_sid: document.getElementById('c-sid').value,
                 twilio_token: document.getElementById('c-token').value
             };
