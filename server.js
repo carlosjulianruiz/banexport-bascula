@@ -55,6 +55,13 @@ db.serialize(() => {
     db.run(`ALTER TABLE empresa ADD COLUMN printer_ip TEXT`, () => {});
     db.run(`ALTER TABLE empresa ADD COLUMN printer_mac TEXT`, () => {});
 
+    // Migración: normaliza datos históricos (placas solo alfanuméricas, textos sin espacios sobrantes)
+    const LIMPIA_PLACA = `REPLACE(REPLACE(REPLACE(placa, ' ', ''), '.', ''), '-', '')`;
+    db.run(`UPDATE pesajes SET placa = ${LIMPIA_PLACA}, conductor = TRIM(conductor),
+            cedula = TRIM(cedula), producto = TRIM(producto), telefonos = TRIM(telefonos)`);
+    db.run(`UPDATE OR IGNORE placa_conductores SET placa = ${LIMPIA_PLACA}, conductor = TRIM(conductor)`);
+    db.run(`DELETE FROM placa_conductores WHERE placa LIKE '% %' OR placa LIKE '%.%' OR placa LIKE '%-%'`);
+
     db.get("SELECT COUNT(*) as count FROM empresa", (err, row) => {
         if (row && row.count === 0) {
             db.run(`INSERT INTO empresa (nombre, nit, telefono, correo, direccion) 
@@ -66,6 +73,10 @@ db.serialize(() => {
 const dbGet = (sql, params) => new Promise((resolve, reject) => db.get(sql, params, (err, row) => err ? reject(err) : resolve(row)));
 const dbRun = (sql, params) => new Promise((resolve, reject) => db.run(sql, params, function(err) { err ? reject(err) : resolve(this) }));
 const dbAll = (sql, params) => new Promise((resolve, reject) => db.all(sql, params, (err, rows) => err ? reject(err) : resolve(rows)));
+
+function normalizarPlaca(placa) {
+    return (placa || '').toUpperCase().replace(/[^A-Z0-9]/g, '');
+}
 
 function obtenerFechaColombia() {
     const fecha = new Date(new Date().toLocaleString("en-US", {timeZone: "America/Bogota"}));
@@ -102,7 +113,7 @@ async function enviarWhatsApp(telefonos, cuerpoTiquete) {
 }
 
 // --- 3. CONFIGURACIÓN SERVIDOR ---
-const PORT_WEB = 3000;
+const PORT_WEB = process.env.PORT_WEB || 3000;
 const app = express();
 app.use(cors()); app.use(express.json()); app.use(express.static('Public'));
 const server = http.createServer(app);
@@ -260,7 +271,7 @@ app.post('/api/empresa', async (req, res) => {
 });
 
 app.get('/api/vehiculo/:placa', async (req, res) => {
-    const placa = req.params.placa.toUpperCase();
+    const placa = normalizarPlaca(req.params.placa);
     const abierta = await dbGet("SELECT * FROM pesajes WHERE placa = ? AND estado = 'ABIERTO'", [placa]);
     const conductores = await dbAll("SELECT conductor, cedula, telefonos FROM placa_conductores WHERE placa = ? ORDER BY ultimo_uso DESC", [placa]);
     res.json({ estado: abierta ? 'EN_PLANTA' : 'NUEVO', datos_pesaje: abierta, conductores });
@@ -285,8 +296,15 @@ app.get('/api/historial', async (req, res) => {
 });
 
 app.post('/api/registrar', async (req, res) => {
-    const { conductor, cedula, producto, observaciones, telefonos } = req.body;
-    const placa = req.body.placa.toUpperCase();
+    const limpiar = (v) => (v || '').replace(/\s+/g, ' ').trim();
+    const conductor = limpiar(req.body.conductor);
+    const cedula = limpiar(req.body.cedula);
+    const producto = limpiar(req.body.producto);
+    const observaciones = limpiar(req.body.observaciones);
+    const telefonos = limpiar(req.body.telefonos);
+    const placa = normalizarPlaca(req.body.placa);
+    if (!placa || placa.length < 3) return res.status(400).json({ error: 'Placa inválida' });
+    if (!conductor) return res.status(400).json({ error: 'Conductor requerido' });
     const fechaHoy = obtenerFechaColombia();
     const emp = await dbGet("SELECT * FROM empresa LIMIT 1");
 
@@ -299,7 +317,12 @@ app.post('/api/registrar', async (req, res) => {
     let tiqueteTxt = "";
     if (abierta) {
         const neto = Math.abs(abierta.peso_entrada - pesoActual);
-        await dbRun("UPDATE pesajes SET peso_salida=?, fecha_salida=?, peso_neto=?, estado='CERRADO' WHERE id=?", [pesoActual, fechaHoy, neto, abierta.id]);
+        const obsSalida = observaciones.toUpperCase();
+        const obsFinal = [abierta.observaciones, obsSalida]
+            .filter(o => o && o.trim())
+            .filter((o, i, arr) => arr.indexOf(o) === i)
+            .join(' | ');
+        await dbRun("UPDATE pesajes SET peso_salida=?, fecha_salida=?, peso_neto=?, observaciones=?, estado='CERRADO' WHERE id=?", [pesoActual, fechaHoy, neto, obsFinal, abierta.id]);
         
             tiqueteTxt = `*TIQUETE DE BÁSCULA*
             *${emp.nombre}*
