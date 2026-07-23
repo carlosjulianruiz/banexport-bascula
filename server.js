@@ -9,7 +9,7 @@ const fs = require('fs');
 const { exec } = require('child_process');
 const { promisify } = require('util');
 const execAsync = promisify(exec);
-const twilio = require('twilio'); // IMPORTANTE: Haber hecho npm install twilio
+const https = require('https');
 const { ThermalPrinter, PrinterTypes, CharacterSet } = require('node-thermal-printer');
 
 // --- 1. CONFIGURACIÓN BASE DE DATOS ---
@@ -46,11 +46,10 @@ db.serialize(() => {
     )`);
     db.run(`ALTER TABLE placa_conductores ADD COLUMN cedula TEXT`, () => {});
 
-    // Empresa + Twilio
+    // Empresa
     db.run(`CREATE TABLE IF NOT EXISTS empresa (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
-        nombre TEXT, nit TEXT, telefono TEXT, correo TEXT, direccion TEXT,
-        twilio_sid TEXT, twilio_token TEXT, twilio_phone TEXT
+        nombre TEXT, nit TEXT, telefono TEXT, correo TEXT, direccion TEXT
     )`);
     db.run(`ALTER TABLE empresa ADD COLUMN printer_ip TEXT`, () => {});
     db.run(`ALTER TABLE empresa ADD COLUMN printer_mac TEXT`, () => {});
@@ -84,31 +83,55 @@ function obtenerFechaColombia() {
     return `${fecha.getFullYear()}-${f(fecha.getMonth()+1)}-${f(fecha.getDate())} ${f(fecha.getHours())}:${f(fecha.getMinutes())}:${f(fecha.getSeconds())}`;
 }
 
-// --- 2. FUNCIÓN DE ENVÍO WHATSAPP ---
+// --- 2. ENVÍO DEL TIQUETE AL WEBHOOK DE WHATSAPP ---
+const WEBHOOK_WHATSAPP = 'https://www.bancaexportadora.com.co/WhatsApp/webhook.php';
+
+// Envía el mismo texto del tiquete impreso al webhook, que se encarga de
+// entregarlo por WhatsApp. Payload JSON: { telefonos: [...], mensaje, origen }.
 async function enviarWhatsApp(telefonos, cuerpoTiquete) {
-    const emp = await dbGet("SELECT * FROM empresa LIMIT 1");
-    
-    // Limpiamos el número de emisor para que no lleve espacios raros
-    const emisorLimpio = emp.twilio_phone.replace(/\s+/g, ''); 
-    const fromWhatsApp = `whatsapp:${emisorLimpio}`; 
+    const lista = (telefonos || '')
+        .split(',')
+        .map(n => n.trim())
+        .filter(n => n.replace(/\D/g, '').length >= 10)
+        .map(n => n.startsWith('+') ? n : `+57${n.replace(/\D/g, '')}`);
 
-    const client = new twilio(emp.twilio_sid, emp.twilio_token);
-    const listaNumeros = telefonos.split(',').map(n => n.trim());
+    if (lista.length === 0) return;
 
-    for (let num of listaNumeros) {
-        if (num.length < 10) continue;
-        const toNum = num.startsWith('+') ? num : `+57${num}`;
-        
-        try {
-            await client.messages.create({
-                body: cuerpoTiquete,
-                from: fromWhatsApp,
-                to: `whatsapp:${toNum}`
+    // Mismo contenido del tiquete impreso, sin la indentación del template literal.
+    const mensaje = cuerpoTiquete.split('\n').map(l => l.replace(/^\s+/, '')).join('\n');
+    const payload = JSON.stringify({ telefonos: lista, mensaje, origen: 'bascula' });
+
+    try {
+        const url = new URL(WEBHOOK_WHATSAPP);
+        await new Promise((resolve) => {
+            const req = https.request({
+                hostname: url.hostname,
+                path: url.pathname + url.search,
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Content-Length': Buffer.byteLength(payload)
+                },
+                timeout: 8000
+            }, (resp) => {
+                let body = '';
+                resp.on('data', c => body += c);
+                resp.on('end', () => {
+                    if (resp.statusCode >= 200 && resp.statusCode < 300) {
+                        console.log(`✅ Tiquete enviado al webhook (${lista.length} nº, HTTP ${resp.statusCode})`);
+                    } else {
+                        console.error(`⚠️ Webhook respondió HTTP ${resp.statusCode}: ${body.slice(0, 200)}`);
+                    }
+                    resolve();
+                });
             });
-            console.log(`✅ Tiquete enviado a ${toNum}`);
-        } catch (e) {
-            console.error(`❌ Error: ${e.message}`);
-        }
+            req.on('timeout', () => req.destroy(new Error('timeout')));
+            req.on('error', (e) => { console.error(`❌ Error enviando al webhook: ${e.message}`); resolve(); });
+            req.write(payload);
+            req.end();
+        });
+    } catch (e) {
+        console.error(`❌ Error enviando al webhook: ${e.message}`);
     }
 }
 
@@ -316,10 +339,10 @@ app.get('/api/printer/status', async (req, res) => {
 });
 
 app.post('/api/empresa', async (req, res) => {
-    const { nombre, nit, telefono, correo, direccion, twilio_sid, twilio_token, twilio_phone, printer_ip, printer_mac } = req.body;
+    const { nombre, nit, telefono, correo, direccion, printer_ip, printer_mac } = req.body;
     const macNormalizada = (printer_mac || '').toLowerCase().trim();
-    await dbRun("UPDATE empresa SET nombre=?, nit=?, telefono=?, correo=?, direccion=?, twilio_sid=?, twilio_token=?, twilio_phone=?, printer_ip=?, printer_mac=? WHERE id=1",
-        [nombre.toUpperCase(), nit, telefono, correo.toLowerCase(), direccion.toUpperCase(), twilio_sid, twilio_token, twilio_phone, printer_ip, macNormalizada]);
+    await dbRun("UPDATE empresa SET nombre=?, nit=?, telefono=?, correo=?, direccion=?, printer_ip=?, printer_mac=? WHERE id=1",
+        [nombre.toUpperCase(), nit, telefono, correo.toLowerCase(), direccion.toUpperCase(), printer_ip, macNormalizada]);
     res.json({ mensaje: "Ok" });
 });
 

@@ -135,10 +135,6 @@
                 <div class="col-span-2"><label class="text-[10px] text-gray-500 uppercase">IP de la impresora térmica (TCP 9100)</label><input type="text" id="c-printer-ip" placeholder="192.168.19.68" autocomplete="off" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono text-cyan-400"></div>
                 <div class="col-span-2"><label class="text-[10px] text-gray-500 uppercase">MAC de la impresora (opcional, auto-detección si la IP cambia)</label><input type="text" id="c-printer-mac" placeholder="a4:d7:3c:ec:97:94" autocomplete="off" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono text-cyan-400 lowercase" style="text-transform:lowercase"></div>
 
-                <div class="col-span-2 mt-6 text-yellow-500 font-bold border-b border-gray-700 text-xs uppercase tracking-widest pb-1">Credenciales Twilio WhatsApp</div>
-                <div class="col-span-2"><label class="text-[10px] text-gray-500 uppercase">Número Emisor Twilio (Incluir + y código de país)</label><input type="text" id="c-twilio-phone" placeholder="+14155238886" autocomplete="off" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono text-yellow-400"></div>
-                <div class="col-span-1"><label class="text-[10px] text-gray-500 uppercase">Account SID</label><input type="password" id="c-sid" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono"></div>
-                <div class="col-span-1"><label class="text-[10px] text-gray-500 uppercase">Auth Token</label><input type="password" id="c-token" class="w-full p-3 bg-gray-900 rounded border border-gray-700 font-mono"></div>
             </div>
             <button onclick="guardarEmpresa()" class="w-full bg-green-600 hover:bg-green-500 py-4 rounded-xl font-bold text-lg mt-8 transition-all shadow-lg"><svg class="w-5 h-5 inline mr-1" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M19 21H5a2 2 0 01-2-2V5a2 2 0 012-2h11l5 5v11a2 2 0 01-2 2z"/><polyline points="17 21 17 13 7 13 7 21"/><polyline points="7 3 7 8 15 8"/></svg> GUARDAR CONFIGURACIÓN</button>
         </div>
@@ -273,11 +269,8 @@
             document.getElementById('c-tel').value = d.telefono || '';
             document.getElementById('c-correo').value = d.correo || '';
             document.getElementById('c-direccion').value = d.direccion || '';
-            document.getElementById('c-twilio-phone').value = d.twilio_phone || '';
             document.getElementById('c-printer-ip').value = d.printer_ip || '';
             document.getElementById('c-printer-mac').value = d.printer_mac || '';
-            document.getElementById('c-sid').value = d.twilio_sid || '';
-            document.getElementById('c-token').value = d.twilio_token || '';
             document.getElementById('header-nombre').innerText = d.nombre || 'BÁSCULA';
         }
 
@@ -288,11 +281,8 @@
                 telefono: document.getElementById('c-tel').value,
                 correo: document.getElementById('c-correo').value,
                 direccion: document.getElementById('c-direccion').value,
-                twilio_phone: document.getElementById('c-twilio-phone').value,
                 printer_ip: document.getElementById('c-printer-ip').value.trim(),
-                printer_mac: document.getElementById('c-printer-mac').value.trim().toLowerCase(),
-                twilio_sid: document.getElementById('c-sid').value,
-                twilio_token: document.getElementById('c-token').value
+                printer_mac: document.getElementById('c-printer-mac').value.trim().toLowerCase()
             };
             const res = await fetch('/api/empresa', { method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(payload) });
             if(res.ok) { abrirModal("CONFIGURACIÓN ACTUALIZADA CON ÉXITO."); cargarEmpresa(); }
