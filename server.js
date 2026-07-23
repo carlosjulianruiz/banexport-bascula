@@ -270,13 +270,39 @@ async function chequearImpresora(ip, intentos = 2) {
 // Debounce: solo se reporta OFFLINE tras varios fallos consecutivos, así un
 // blip momentáneo de red o un job de impresión en curso no apaga el LED.
 const FALLOS_PARA_OFFLINE = 3;
+const REDESCUBRIR_CADA_MS = 30000; // arp-scan es pesado: throttle
 let fallosConsecutivos = 0;
 let ultimoEstadoImpresora = false;
+let ultimoRedescubrimiento = 0;
+let redescubriendo = false;
 
 app.get('/api/printer/status', async (req, res) => {
     const emp = await dbGet("SELECT printer_ip, printer_mac FROM empresa LIMIT 1");
-    const ip = emp?.printer_ip || null;
-    const vivo = await chequearImpresora(ip);
+    let ip = emp?.printer_ip || null;
+    const mac = emp?.printer_mac || null;
+    let vivo = await chequearImpresora(ip);
+
+    // Si la IP guardada no responde pero hay MAC, la impresora pudo cambiar de
+    // IP por DHCP. Re-descubrimos por MAC (con throttle y sin solaparse) y, si
+    // aparece una IP distinta, se actualiza y se re-verifica. Así el LED y la
+    // IP se auto-recuperan sin intervención manual.
+    if (!vivo && mac && !redescubriendo && (Date.now() - ultimoRedescubrimiento) > REDESCUBRIR_CADA_MS) {
+        redescubriendo = true;
+        ultimoRedescubrimiento = Date.now();
+        try {
+            const nuevaIp = await findIpByMac(mac);
+            if (nuevaIp && nuevaIp !== ip) {
+                console.log(`📍 [status] IP de impresora actualizada: ${ip || 'N/A'} → ${nuevaIp}`);
+                await dbRun("UPDATE empresa SET printer_ip=? WHERE id=1", [nuevaIp]);
+                ip = nuevaIp;
+                vivo = await chequearImpresora(ip);
+            }
+        } catch (e) {
+            console.error(`❌ [status] Re-descubrimiento por MAC falló: ${e.message}`);
+        } finally {
+            redescubriendo = false;
+        }
+    }
 
     if (vivo) {
         fallosConsecutivos = 0;
@@ -286,7 +312,7 @@ app.get('/api/printer/status', async (req, res) => {
         if (fallosConsecutivos >= FALLOS_PARA_OFFLINE) ultimoEstadoImpresora = false;
     }
 
-    res.json({ connected: ultimoEstadoImpresora, ip, mac: emp?.printer_mac || null });
+    res.json({ connected: ultimoEstadoImpresora, ip, mac });
 });
 
 app.post('/api/empresa', async (req, res) => {
