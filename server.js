@@ -101,7 +101,7 @@ async function enviarWhatsApp(telefonos, datos = {}) {
 
     // Texto completo del tiquete, sin la indentación del template literal.
     const mensaje = (datos.mensaje || '').split('\n').map(l => l.replace(/^\s+/, '')).join('\n');
-    const payload = JSON.stringify({ ...datos, mensaje, telefonos: lista, origen: 'bascula' });
+    const payload = JSON.stringify({ ...datos, mensaje, telefonos: lista, origen: datos.origen || 'bascula' });
 
     try {
         const url = new URL(WEBHOOK_WHATSAPP);
@@ -135,6 +135,15 @@ async function enviarWhatsApp(telefonos, datos = {}) {
     } catch (e) {
         console.error(`❌ Error enviando al webhook: ${e.message}`);
     }
+}
+
+// Teléfono(s) que reciben alertas de estado de la impresora (separar con coma).
+const TELEFONO_ALERTAS = process.env.TELEFONO_ALERTAS || '+573212026991';
+
+// Envía una alerta de impresora por WhatsApp (vía webhook, origen distinto).
+async function alertarImpresora(mensaje) {
+    if (!TELEFONO_ALERTAS) return;
+    await enviarWhatsApp(TELEFONO_ALERTAS, { mensaje, origen: 'bascula-alerta', tipo: 'ALERTA_IMPRESORA' });
 }
 
 // --- 3. CONFIGURACIÓN SERVIDOR ---
@@ -328,6 +337,7 @@ const INTERVALO_OK_MS = 10000; // cadencia cuando está conectada
 const INTERVALO_BUSCANDO_MS = 3000; // pausa entre barridos cuando busca
 
 let fallosConsecutivos = 0;
+let alertaOfflineEnviada = false; // evita repetir la alerta mientras siga caída
 const printerState = { connected: false, ip: null, mac: null, searching: false };
 
 async function cicloImpresora() {
@@ -359,6 +369,7 @@ async function cicloImpresora() {
             siguiente = INTERVALO_BUSCANDO_MS; // seguir barriendo pronto
         }
 
+        const estabaConectada = printerState.connected;
         if (vivo) {
             fallosConsecutivos = 0;
             printerState.connected = true;
@@ -368,6 +379,23 @@ async function cicloImpresora() {
             if (fallosConsecutivos >= FALLOS_PARA_OFFLINE) printerState.connected = false;
         }
         printerState.ip = ip;
+
+        // Alertas por WhatsApp solo en las transiciones (una sola vez).
+        if (estabaConectada && !printerState.connected && !alertaOfflineEnviada) {
+            alertaOfflineEnviada = true;
+            alertarImpresora(`⚠️ *ALERTA BÁSCULA*
+La impresora se DESCONECTÓ y no responde.
+Última IP: ${ip || 'N/A'}
+Hora: ${obtenerFechaColombia()}
+Buscándola automáticamente en la red...`);
+        }
+        if (printerState.connected && alertaOfflineEnviada) {
+            alertaOfflineEnviada = false;
+            alertarImpresora(`✅ *BÁSCULA*
+Impresora reconectada.
+IP: ${ip}
+Hora: ${obtenerFechaColombia()}`);
+        }
     } catch (e) {
         console.error(`❌ cicloImpresora: ${e.message}`);
     } finally {
