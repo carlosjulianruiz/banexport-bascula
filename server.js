@@ -186,6 +186,13 @@ try {
 
 const esEpson = (mac, vendor) => /epson/i.test(vendor || '');
 
+// Normaliza un MAC a minúsculas con dos puntos, aceptando guiones, dos puntos
+// o sin separador (arp-scan usa ":", el usuario a veces escribe "-").
+function normalizarMac(m) {
+    const hex = (m || '').toLowerCase().replace(/[^0-9a-f]/g, '');
+    return hex.length === 12 ? hex.match(/.{2}/g).join(':') : (m || '').toLowerCase().trim();
+}
+
 // Escanea la LAN con arp-scan y devuelve [{ ip, mac, vendor }].
 async function escanearRed() {
     const hosts = [];
@@ -208,14 +215,14 @@ async function escanearRed() {
 // escaneo solo sirve para reencontrarla cuando el DHCP le cambia la IP.
 // Devuelve { ip, mac } o null.
 async function descubrirImpresora(macConfig) {
-    const target = (macConfig || '').toLowerCase().trim();
+    const target = normalizarMac(macConfig);
     if (!target) {
         console.error('❌ No hay MAC de impresora configurada; no se puede descubrir con seguridad');
         return null;
     }
 
     const hosts = await escanearRed();
-    const exacto = hosts.find(h => h.mac === target);
+    const exacto = hosts.find(h => normalizarMac(h.mac) === target);
     if (exacto && await probarSocket(exacto.ip)) return { ip: exacto.ip, mac: exacto.mac };
     return null;
 }
@@ -417,7 +424,7 @@ app.get('/api/printer/scan', async (req, res) => {
 
 app.post('/api/empresa', async (req, res) => {
     const { nombre, nit, telefono, correo, direccion, printer_ip, printer_mac } = req.body;
-    const macNormalizada = (printer_mac || '').toLowerCase().trim();
+    const macNormalizada = normalizarMac(printer_mac);
     await dbRun("UPDATE empresa SET nombre=?, nit=?, telefono=?, correo=?, direccion=?, printer_ip=?, printer_mac=? WHERE id=1",
         [nombre.toUpperCase(), nit, telefono, correo.toLowerCase(), direccion.toUpperCase(), printer_ip, macNormalizada]);
     res.json({ mensaje: "Ok" });
