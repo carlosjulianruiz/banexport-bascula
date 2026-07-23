@@ -86,9 +86,11 @@ function obtenerFechaColombia() {
 // --- 2. ENVÍO DEL TIQUETE AL WEBHOOK DE WHATSAPP ---
 const WEBHOOK_WHATSAPP = 'https://www.bancaexportadora.com.co/WhatsApp/webhook.php';
 
-// Envía el mismo texto del tiquete impreso al webhook, que se encarga de
-// entregarlo por WhatsApp. Payload JSON: { telefonos: [...], mensaje, origen }.
-async function enviarWhatsApp(telefonos, cuerpoTiquete) {
+// Envía el tiquete al webhook, que lo entrega por WhatsApp (Cloud API de Meta).
+// Payload JSON: { telefonos: [...], origen, mensaje, ...campos estructurados }.
+// Los campos estructurados (placa, pesos, producto, etc.) permiten armar la
+// plantilla de Meta; "mensaje" es el texto completo para el modo texto libre.
+async function enviarWhatsApp(telefonos, datos = {}) {
     const lista = (telefonos || '')
         .split(',')
         .map(n => n.trim())
@@ -97,9 +99,9 @@ async function enviarWhatsApp(telefonos, cuerpoTiquete) {
 
     if (lista.length === 0) return;
 
-    // Mismo contenido del tiquete impreso, sin la indentación del template literal.
-    const mensaje = cuerpoTiquete.split('\n').map(l => l.replace(/^\s+/, '')).join('\n');
-    const payload = JSON.stringify({ telefonos: lista, mensaje, origen: 'bascula' });
+    // Texto completo del tiquete, sin la indentación del template literal.
+    const mensaje = (datos.mensaje || '').split('\n').map(l => l.replace(/^\s+/, '')).join('\n');
+    const payload = JSON.stringify({ ...datos, mensaje, telefonos: lista, origen: 'bascula' });
 
     try {
         const url = new URL(WEBHOOK_WHATSAPP);
@@ -423,7 +425,21 @@ app.post('/api/registrar', async (req, res) => {
             --------------------------------`;
         
         imprimirTiquete(tiqueteTxt);
-        enviarWhatsApp(telefonos, tiqueteTxt);
+        enviarWhatsApp(telefonos, {
+            mensaje: tiqueteTxt,
+            tipo: 'SALIDA',
+            empresa: emp.nombre,
+            tiquete: abierta.id,
+            placa,
+            conductor: conductor.toUpperCase(),
+            cedula: cedula || 'N/A',
+            producto: producto.toUpperCase(),
+            fecha_entrada: abierta.fecha_entrada,
+            fecha_salida: fechaHoy,
+            peso_bruto: abierta.peso_entrada.toFixed(1),
+            peso_tara: pesoActual.toFixed(1),
+            peso_neto: neto.toFixed(1)
+        });
         res.json({ tipo: 'SALIDA', neto });
     } else {
         const r = await dbRun("INSERT INTO pesajes (placa, conductor, cedula, producto, observaciones, telefonos, peso_entrada, fecha_entrada) VALUES (?,?,?,?,?,?,?,?)",
@@ -448,7 +464,18 @@ E-MAIL: ${emp.correo}
 --------------------------------`;
 
         imprimirTiquete(tiqueteTxt);
-        enviarWhatsApp(telefonos, tiqueteTxt);
+        enviarWhatsApp(telefonos, {
+            mensaje: tiqueteTxt,
+            tipo: 'ENTRADA',
+            empresa: emp.nombre,
+            tiquete: r.lastID,
+            placa,
+            conductor: conductor.toUpperCase(),
+            cedula: cedula || 'N/A',
+            producto: producto.toUpperCase(),
+            fecha_entrada: fechaHoy,
+            peso_entrada: pesoActual.toFixed(1)
+        });
         res.json({ tipo: 'ENTRADA', id: r.lastID });
     }
 });
@@ -503,7 +530,23 @@ E-MAIL: ${emp.correo}
         }
 
         imprimirTiquete(t);
-        enviarWhatsApp(reg.telefonos, t);
+        enviarWhatsApp(reg.telefonos, {
+            mensaje: t,
+            tipo: reg.estado === 'CERRADO' ? 'SALIDA' : 'ENTRADA',
+            reimpresion: true,
+            empresa: emp.nombre,
+            tiquete: reg.id,
+            placa: reg.placa,
+            conductor: reg.conductor ? reg.conductor.toUpperCase() : 'N/A',
+            cedula: reg.cedula || 'N/A',
+            producto: reg.producto ? reg.producto.toUpperCase() : 'N/A',
+            fecha_entrada: reg.fecha_entrada,
+            fecha_salida: reg.fecha_salida || null,
+            peso_bruto: reg.peso_entrada != null ? reg.peso_entrada.toFixed(1) : null,
+            peso_tara: reg.peso_salida != null ? reg.peso_salida.toFixed(1) : null,
+            peso_neto: reg.peso_neto != null ? reg.peso_neto.toFixed(1) : null,
+            peso_entrada: reg.peso_entrada != null ? reg.peso_entrada.toFixed(1) : null
+        });
         res.json({ mensaje: "Ok" });
     } catch (e) { 
         console.error(e);
