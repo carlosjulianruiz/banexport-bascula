@@ -184,16 +184,19 @@ try {
     setInterval(() => { pesoActual = 15000 + (Math.random() * 5); io.emit('peso_live', pesoActual); }, 500);
 }
 
-// Prefijos MAC (OUI) de Seiko Epson vistos en esta red. Solo se usan como
-// preferencia si hubiera varios equipos con 9100 abierto; no es obligatorio.
-const OUIS_EPSON = ['a4:d7:3c', '50:57:9c', '00:26:ab', '00:00:48', 'b0:e8:92'];
-const esEpson = (mac, vendor) =>
-    /epson/i.test(vendor || '') || OUIS_EPSON.includes((mac || '').slice(0, 8));
-
-// Descubre la impresora en la LAN. La MAC y la IP cambian (DHCP, doble interfaz
-// cable/WiFi), así que la identificamos por el PUERTO 9100 abierto —el puerto de
-// impresión—, prefiriendo equipos Seiko Epson. Devuelve { ip, mac } o null.
+// Descubre la IP actual de LA impresora configurada. En esta red hay varias
+// impresoras Epson, así que la identificamos SIEMPRE por su MAC exacta (estable
+// por equipo); si esa MAC no está o no responde en 9100, se considera offline y
+// NO se adivina otra impresora (evita imprimir en el equipo equivocado). El
+// escaneo solo sirve para reencontrarla cuando el DHCP le cambia la IP.
+// Devuelve { ip, mac } o null.
 async function descubrirImpresora(macConfig) {
+    const target = (macConfig || '').toLowerCase().trim();
+    if (!target) {
+        console.error('❌ No hay MAC de impresora configurada; no se puede descubrir con seguridad');
+        return null;
+    }
+
     let hosts = [];
     try {
         const { stdout } = await execAsync('sudo -n arp-scan --localnet --retry=2 2>/dev/null', { timeout: 15000 });
@@ -205,25 +208,10 @@ async function descubrirImpresora(macConfig) {
         console.error(`❌ arp-scan falló: ${e.message}`);
         return null;
     }
-    if (hosts.length === 0) return null;
 
-    // 1) Camino rápido: si la MAC configurada sigue en la red y responde en 9100.
-    const target = (macConfig || '').toLowerCase().trim();
-    if (target) {
-        const exacto = hosts.find(h => h.mac === target);
-        if (exacto && await probarSocket(exacto.ip)) return { ip: exacto.ip, mac: exacto.mac };
-    }
-
-    // 2) De todos los equipos vivos, quedarse con los que tienen 9100 abierto.
-    const abiertos = [];
-    await Promise.all(hosts.map(async (h) => {
-        if (await probarSocket(h.ip)) abiertos.push(h);
-    }));
-    if (abiertos.length === 0) return null;
-
-    // Preferir Seiko Epson; si no, el primero con 9100 abierto.
-    const elegido = abiertos.find(h => esEpson(h.mac, h.vendor)) || abiertos[0];
-    return { ip: elegido.ip, mac: elegido.mac };
+    const exacto = hosts.find(h => h.mac === target);
+    if (exacto && await probarSocket(exacto.ip)) return { ip: exacto.ip, mac: exacto.mac };
+    return null;
 }
 
 async function ejecutarImpresion(printerIp, texto) {
