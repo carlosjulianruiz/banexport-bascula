@@ -184,6 +184,23 @@ try {
     setInterval(() => { pesoActual = 15000 + (Math.random() * 5); io.emit('peso_live', pesoActual); }, 500);
 }
 
+const esEpson = (mac, vendor) => /epson/i.test(vendor || '');
+
+// Escanea la LAN con arp-scan y devuelve [{ ip, mac, vendor }].
+async function escanearRed() {
+    const hosts = [];
+    try {
+        const { stdout } = await execAsync('sudo -n arp-scan --localnet --retry=2 2>/dev/null', { timeout: 15000 });
+        for (const line of stdout.split('\n')) {
+            const m = line.match(/^(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f:]{17})\s*(.*)$/i);
+            if (m) hosts.push({ ip: m[1], mac: m[2].toLowerCase(), vendor: (m[3] || '').trim() });
+        }
+    } catch (e) {
+        console.error(`❌ arp-scan falló: ${e.message}`);
+    }
+    return hosts;
+}
+
 // Descubre la IP actual de LA impresora configurada. En esta red hay varias
 // impresoras Epson, así que la identificamos SIEMPRE por su MAC exacta (estable
 // por equipo); si esa MAC no está o no responde en 9100, se considera offline y
@@ -197,18 +214,7 @@ async function descubrirImpresora(macConfig) {
         return null;
     }
 
-    let hosts = [];
-    try {
-        const { stdout } = await execAsync('sudo -n arp-scan --localnet --retry=2 2>/dev/null', { timeout: 15000 });
-        for (const line of stdout.split('\n')) {
-            const m = line.match(/^(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f:]{17})\s*(.*)$/i);
-            if (m) hosts.push({ ip: m[1], mac: m[2].toLowerCase(), vendor: (m[3] || '').trim() });
-        }
-    } catch (e) {
-        console.error(`❌ arp-scan falló: ${e.message}`);
-        return null;
-    }
-
+    const hosts = await escanearRed();
     const exacto = hosts.find(h => h.mac === target);
     if (exacto && await probarSocket(exacto.ip)) return { ip: exacto.ip, mac: exacto.mac };
     return null;
@@ -394,6 +400,19 @@ cicloImpresora();
 
 app.get('/api/printer/status', (req, res) => {
     res.json(printerState);
+});
+
+// Escanea la red y devuelve las impresoras candidatas (equipos con el puerto
+// de impresión 9100 abierto). Sirve para el botón "Detectar impresora" en Config.
+app.get('/api/printer/scan', async (req, res) => {
+    const hosts = await escanearRed();
+    const candidatas = [];
+    await Promise.all(hosts.map(async (h) => {
+        if (await probarSocket(h.ip)) candidatas.push({ ...h, epson: esEpson(h.mac, h.vendor) });
+    }));
+    // Epson primero (la impresora térmica suele serlo)
+    candidatas.sort((a, b) => (b.epson ? 1 : 0) - (a.epson ? 1 : 0));
+    res.json({ impresoras: candidatas });
 });
 
 app.post('/api/empresa', async (req, res) => {
