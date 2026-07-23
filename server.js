@@ -241,7 +241,7 @@ async function imprimirTiquete(texto) {
 
 app.get('/api/empresa', async (req, res) => res.json(await dbGet("SELECT * FROM empresa LIMIT 1")));
 
-function chequearImpresora(ip, timeout = 1500) {
+function probarSocket(ip, timeout = 2500) {
     return new Promise((resolve) => {
         if (!ip) return resolve(false);
         const socket = new net.Socket();
@@ -255,11 +255,38 @@ function chequearImpresora(ip, timeout = 1500) {
     });
 }
 
+// Un solo probe TCP falla con frecuencia (la impresora acepta una sola
+// conexión a la vez y demora en liberar el puerto 9100). Reintentamos
+// dentro de un mismo chequeo antes de darla por caída.
+async function chequearImpresora(ip, intentos = 2) {
+    if (!ip) return false;
+    for (let i = 0; i < intentos; i++) {
+        if (await probarSocket(ip)) return true;
+        if (i < intentos - 1) await new Promise(r => setTimeout(r, 300));
+    }
+    return false;
+}
+
+// Debounce: solo se reporta OFFLINE tras varios fallos consecutivos, así un
+// blip momentáneo de red o un job de impresión en curso no apaga el LED.
+const FALLOS_PARA_OFFLINE = 3;
+let fallosConsecutivos = 0;
+let ultimoEstadoImpresora = false;
+
 app.get('/api/printer/status', async (req, res) => {
     const emp = await dbGet("SELECT printer_ip, printer_mac FROM empresa LIMIT 1");
     const ip = emp?.printer_ip || null;
-    const connected = await chequearImpresora(ip);
-    res.json({ connected, ip, mac: emp?.printer_mac || null });
+    const vivo = await chequearImpresora(ip);
+
+    if (vivo) {
+        fallosConsecutivos = 0;
+        ultimoEstadoImpresora = true;
+    } else {
+        fallosConsecutivos++;
+        if (fallosConsecutivos >= FALLOS_PARA_OFFLINE) ultimoEstadoImpresora = false;
+    }
+
+    res.json({ connected: ultimoEstadoImpresora, ip, mac: emp?.printer_mac || null });
 });
 
 app.post('/api/empresa', async (req, res) => {
