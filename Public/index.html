@@ -296,7 +296,10 @@
             document.getElementById('reloj').innerText = `${d}-${m}-${a} | ${ahora.toLocaleTimeString('es-CO')}`;
         }, 1000);
 
+        let estadoImpresoraEnCurso = false;
         async function actualizarEstadoImpresora() {
+            if (estadoImpresoraEnCurso) return; // evita peticiones solapadas
+            estadoImpresoraEnCurso = true;
             try {
                 const res = await fetch('/api/printer/status');
                 const d = await res.json();
@@ -309,16 +312,24 @@
                     txt.innerText = d.ip;
                     txt.className = 'text-xs text-green-400 font-mono tracking-wider';
                     wrap.title = `Impresora conectada (${d.ip})`;
+                } else if (d.searching || d.mac) {
+                    // Offline pero con MAC: el servidor la está buscando en la red.
+                    led.className = 'w-3 h-3 rounded-full bg-yellow-500 transition-colors animate-pulse';
+                    led.style.boxShadow = '0 0 8px rgba(234,179,8,0.7)';
+                    txt.innerText = 'BUSCANDO…';
+                    txt.className = 'text-xs text-yellow-400 font-mono tracking-wider';
+                    wrap.title = `Buscando impresora en la red (MAC ${d.mac})`;
                 } else {
                     led.className = 'w-3 h-3 rounded-full bg-red-500 transition-colors animate-pulse';
                     led.style.boxShadow = '0 0 8px rgba(239,68,68,0.7)';
                     txt.innerText = d.ip ? 'OFFLINE' : 'SIN IP';
                     txt.className = 'text-xs text-red-400 font-mono tracking-wider';
-                    wrap.title = d.ip ? `${d.ip} no responde` : 'IP no configurada';
+                    wrap.title = d.ip ? `${d.ip} no responde (configura la MAC para auto-búsqueda)` : 'IP no configurada';
                 }
-            } catch (e) { /* offline */ }
+            } catch (e) { /* servidor no responde */ }
+            finally { estadoImpresoraEnCurso = false; }
         }
-        setInterval(actualizarEstadoImpresora, 10000);
+        setInterval(actualizarEstadoImpresora, 4000);
 
         window.onload = () => { document.getElementById('placa').focus(); cargarEmpresa(); actualizarEstadoImpresora(); }
     </script>

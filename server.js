@@ -292,52 +292,67 @@ async function chequearImpresora(ip, intentos = 2) {
     return false;
 }
 
-// Debounce: solo se reporta OFFLINE tras varios fallos consecutivos, así un
-// blip momentáneo de red o un job de impresión en curso no apaga el LED.
-const FALLOS_PARA_OFFLINE = 3;
-const REDESCUBRIR_CADA_MS = 30000; // arp-scan es pesado: throttle
+// --- MONITOR DE IMPRESORA (loop de fondo) ---
+// Un loop revisa la impresora continuamente y mantiene `printerState`. El
+// endpoint /status solo devuelve ese estado (instantáneo, sin bloquear), así
+// que la UI puede sondear rápido. Cuando la impresora queda offline y hay MAC,
+// el loop escanea la red por MAC sin parar hasta reencontrarla (los cortes de
+// luz o apagados nocturnos suelen darle una IP nueva por DHCP).
+const FALLOS_PARA_OFFLINE = 3; // debounce: no apagar el LED por un blip
+const INTERVALO_OK_MS = 10000; // cadencia cuando está conectada
+const INTERVALO_BUSCANDO_MS = 3000; // pausa entre barridos cuando busca
+
 let fallosConsecutivos = 0;
-let ultimoEstadoImpresora = false;
-let ultimoRedescubrimiento = 0;
-let redescubriendo = false;
+const printerState = { connected: false, ip: null, mac: null, searching: false };
 
-app.get('/api/printer/status', async (req, res) => {
-    const emp = await dbGet("SELECT printer_ip, printer_mac FROM empresa LIMIT 1");
-    let ip = emp?.printer_ip || null;
-    const mac = emp?.printer_mac || null;
-    let vivo = await chequearImpresora(ip);
+async function cicloImpresora() {
+    let siguiente = INTERVALO_OK_MS;
+    try {
+        const emp = await dbGet("SELECT printer_ip, printer_mac FROM empresa LIMIT 1");
+        let ip = emp?.printer_ip || null;
+        const mac = emp?.printer_mac || null;
+        printerState.mac = mac;
 
-    // Si la IP guardada no responde pero hay MAC, la impresora pudo cambiar de
-    // IP por DHCP. Re-descubrimos por MAC (con throttle y sin solaparse) y, si
-    // aparece una IP distinta, se actualiza y se re-verifica. Así el LED y la
-    // IP se auto-recuperan sin intervención manual.
-    if (!vivo && mac && !redescubriendo && (Date.now() - ultimoRedescubrimiento) > REDESCUBRIR_CADA_MS) {
-        redescubriendo = true;
-        ultimoRedescubrimiento = Date.now();
-        try {
-            const nuevaIp = await findIpByMac(mac);
-            if (nuevaIp && nuevaIp !== ip) {
-                console.log(`📍 [status] IP de impresora actualizada: ${ip || 'N/A'} → ${nuevaIp}`);
-                await dbRun("UPDATE empresa SET printer_ip=? WHERE id=1", [nuevaIp]);
-                ip = nuevaIp;
-                vivo = await chequearImpresora(ip);
+        let vivo = await chequearImpresora(ip);
+
+        // Offline + MAC configurada → buscar por MAC hasta encontrarla.
+        if (!vivo && mac) {
+            printerState.searching = true;
+            try {
+                const nuevaIp = await findIpByMac(mac);
+                if (nuevaIp && nuevaIp !== ip) {
+                    console.log(`📍 Impresora reencontrada: ${ip || 'N/A'} → ${nuevaIp}`);
+                    await dbRun("UPDATE empresa SET printer_ip=? WHERE id=1", [nuevaIp]);
+                    ip = nuevaIp;
+                    vivo = await chequearImpresora(ip);
+                }
+            } catch (e) {
+                console.error(`❌ Búsqueda por MAC falló: ${e.message}`);
             }
-        } catch (e) {
-            console.error(`❌ [status] Re-descubrimiento por MAC falló: ${e.message}`);
-        } finally {
-            redescubriendo = false;
+            siguiente = INTERVALO_BUSCANDO_MS; // seguir barriendo pronto
+        } else if (!vivo) {
+            siguiente = INTERVALO_BUSCANDO_MS; // sin MAC: reintentar pronto igual
         }
-    }
 
-    if (vivo) {
-        fallosConsecutivos = 0;
-        ultimoEstadoImpresora = true;
-    } else {
-        fallosConsecutivos++;
-        if (fallosConsecutivos >= FALLOS_PARA_OFFLINE) ultimoEstadoImpresora = false;
+        if (vivo) {
+            fallosConsecutivos = 0;
+            printerState.connected = true;
+            printerState.searching = false;
+        } else {
+            fallosConsecutivos++;
+            if (fallosConsecutivos >= FALLOS_PARA_OFFLINE) printerState.connected = false;
+        }
+        printerState.ip = ip;
+    } catch (e) {
+        console.error(`❌ cicloImpresora: ${e.message}`);
+    } finally {
+        setTimeout(cicloImpresora, siguiente);
     }
+}
+cicloImpresora();
 
-    res.json({ connected: ultimoEstadoImpresora, ip, mac });
+app.get('/api/printer/status', (req, res) => {
+    res.json(printerState);
 });
 
 app.post('/api/empresa', async (req, res) => {
