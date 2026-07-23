@@ -175,19 +175,46 @@ try {
     setInterval(() => { pesoActual = 15000 + (Math.random() * 5); io.emit('peso_live', pesoActual); }, 500);
 }
 
-async function findIpByMac(mac) {
-    if (!mac) return null;
-    const target = mac.toLowerCase().trim();
+// Prefijos MAC (OUI) de Seiko Epson vistos en esta red. Solo se usan como
+// preferencia si hubiera varios equipos con 9100 abierto; no es obligatorio.
+const OUIS_EPSON = ['a4:d7:3c', '50:57:9c', '00:26:ab', '00:00:48', 'b0:e8:92'];
+const esEpson = (mac, vendor) =>
+    /epson/i.test(vendor || '') || OUIS_EPSON.includes((mac || '').slice(0, 8));
+
+// Descubre la impresora en la LAN. La MAC y la IP cambian (DHCP, doble interfaz
+// cable/WiFi), así que la identificamos por el PUERTO 9100 abierto —el puerto de
+// impresión—, prefiriendo equipos Seiko Epson. Devuelve { ip, mac } o null.
+async function descubrirImpresora(macConfig) {
+    let hosts = [];
     try {
         const { stdout } = await execAsync('sudo -n arp-scan --localnet --retry=2 2>/dev/null', { timeout: 15000 });
         for (const line of stdout.split('\n')) {
-            const m = line.match(/^(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f:]{17})/i);
-            if (m && m[2].toLowerCase() === target) return m[1];
+            const m = line.match(/^(\d+\.\d+\.\d+\.\d+)\s+([0-9a-f:]{17})\s*(.*)$/i);
+            if (m) hosts.push({ ip: m[1], mac: m[2].toLowerCase(), vendor: (m[3] || '').trim() });
         }
     } catch (e) {
         console.error(`❌ arp-scan falló: ${e.message}`);
+        return null;
     }
-    return null;
+    if (hosts.length === 0) return null;
+
+    // 1) Camino rápido: si la MAC configurada sigue en la red y responde en 9100.
+    const target = (macConfig || '').toLowerCase().trim();
+    if (target) {
+        const exacto = hosts.find(h => h.mac === target);
+        if (exacto && await probarSocket(exacto.ip)) return { ip: exacto.ip, mac: exacto.mac };
+    }
+
+    // 2) De todos los equipos vivos, quedarse con los que tienen 9100 abierto.
+    const abiertos = [];
+    await Promise.all(hosts.map(async (h) => {
+        if (await probarSocket(h.ip)) abiertos.push(h);
+    }));
+    if (abiertos.length === 0) return null;
+
+    // Preferir Seiko Epson; si no, el primero con 9100 abierto.
+    const elegido = abiertos.find(h => esEpson(h.mac, h.vendor)) || abiertos[0];
+    return { ip: elegido.ip, mac: elegido.mac };
 }
 
 async function ejecutarImpresion(printerIp, texto) {
@@ -224,12 +251,9 @@ async function ejecutarImpresion(printerIp, texto) {
 async function imprimirTiquete(texto) {
     try {
         const emp = await dbGet("SELECT printer_ip, printer_mac FROM empresa LIMIT 1");
-        if (!emp || (!emp.printer_ip && !emp.printer_mac)) {
-            console.log("\n--- 🖨️ SIN IMPRESORA CONFIGURADA ---\n" + texto);
-            return;
-        }
 
-        if (emp.printer_ip) {
+        // 1) Intento directo con la IP guardada.
+        if (emp?.printer_ip) {
             try {
                 if (await ejecutarImpresion(emp.printer_ip, texto)) {
                     console.log(`✅ Tiquete impreso en ${emp.printer_ip}`);
@@ -241,19 +265,20 @@ async function imprimirTiquete(texto) {
             console.log(`⚠️ ${emp.printer_ip} no responde`);
         }
 
-        if (emp.printer_mac) {
-            console.log(`🔎 Buscando impresora por MAC ${emp.printer_mac}...`);
-            const nuevaIp = await findIpByMac(emp.printer_mac);
-            if (nuevaIp && nuevaIp !== emp.printer_ip) {
-                console.log(`📍 IP actualizada: ${emp.printer_ip || 'N/A'} → ${nuevaIp}`);
-                await dbRun("UPDATE empresa SET printer_ip=? WHERE id=1", [nuevaIp]);
-                if (await ejecutarImpresion(nuevaIp, texto)) {
-                    console.log(`✅ Tiquete impreso en ${nuevaIp}`);
-                    return;
-                }
-            } else if (!nuevaIp) {
-                console.error(`❌ MAC ${emp.printer_mac} no encontrada en la red`);
+        // 2) No respondió: descubrir la impresora en la red (por puerto 9100).
+        console.log(`🔎 Buscando impresora en la red...`);
+        const found = await descubrirImpresora(emp?.printer_mac);
+        if (found) {
+            if (found.ip !== emp?.printer_ip) {
+                console.log(`📍 IP actualizada: ${emp?.printer_ip || 'N/A'} → ${found.ip}`);
+                await dbRun("UPDATE empresa SET printer_ip=? WHERE id=1", [found.ip]);
             }
+            if (await ejecutarImpresion(found.ip, texto)) {
+                console.log(`✅ Tiquete impreso en ${found.ip}`);
+                return;
+            }
+        } else {
+            console.error(`❌ No se encontró ninguna impresora (9100) en la red`);
         }
 
         console.error(`❌ No se pudo imprimir el tiquete`);
@@ -295,9 +320,9 @@ async function chequearImpresora(ip, intentos = 2) {
 // --- MONITOR DE IMPRESORA (loop de fondo) ---
 // Un loop revisa la impresora continuamente y mantiene `printerState`. El
 // endpoint /status solo devuelve ese estado (instantáneo, sin bloquear), así
-// que la UI puede sondear rápido. Cuando la impresora queda offline y hay MAC,
-// el loop escanea la red por MAC sin parar hasta reencontrarla (los cortes de
-// luz o apagados nocturnos suelen darle una IP nueva por DHCP).
+// que la UI puede sondear rápido. Cuando la impresora queda offline, el loop
+// la busca en la red por el puerto 9100 sin parar hasta reencontrarla (cortes
+// de luz o apagados nocturnos suelen darle una IP —y a veces MAC— nueva).
 const FALLOS_PARA_OFFLINE = 3; // debounce: no apagar el LED por un blip
 const INTERVALO_OK_MS = 10000; // cadencia cuando está conectada
 const INTERVALO_BUSCANDO_MS = 3000; // pausa entre barridos cuando busca
@@ -315,23 +340,23 @@ async function cicloImpresora() {
 
         let vivo = await chequearImpresora(ip);
 
-        // Offline + MAC configurada → buscar por MAC hasta encontrarla.
-        if (!vivo && mac) {
+        // Offline → buscar la impresora en la red (por puerto 9100) hasta hallarla.
+        if (!vivo) {
             printerState.searching = true;
             try {
-                const nuevaIp = await findIpByMac(mac);
-                if (nuevaIp && nuevaIp !== ip) {
-                    console.log(`📍 Impresora reencontrada: ${ip || 'N/A'} → ${nuevaIp}`);
-                    await dbRun("UPDATE empresa SET printer_ip=? WHERE id=1", [nuevaIp]);
-                    ip = nuevaIp;
-                    vivo = await chequearImpresora(ip);
+                const found = await descubrirImpresora(mac);
+                if (found && found.ip !== ip) {
+                    console.log(`📍 Impresora reencontrada: ${ip || 'N/A'} → ${found.ip}`);
+                    await dbRun("UPDATE empresa SET printer_ip=? WHERE id=1", [found.ip]);
+                    ip = found.ip;
+                    vivo = true; // descubrirImpresora ya confirmó 9100 abierto
+                } else if (found) {
+                    vivo = true;
                 }
             } catch (e) {
-                console.error(`❌ Búsqueda por MAC falló: ${e.message}`);
+                console.error(`❌ Búsqueda de impresora falló: ${e.message}`);
             }
             siguiente = INTERVALO_BUSCANDO_MS; // seguir barriendo pronto
-        } else if (!vivo) {
-            siguiente = INTERVALO_BUSCANDO_MS; // sin MAC: reintentar pronto igual
         }
 
         if (vivo) {
